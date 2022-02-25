@@ -33,9 +33,283 @@
 
 ​		网络中的另一端（比如服务器端）接收到这一帧报文后，也同样按照这样的格式来解析这一帧报文，然后采用同样的CRC算法来为接收到的数据计算一个CRC校验和值，再把计算得到的CRC值与收到的CRC值作比较，如果这两个CRC值是相同的，就说明收到的数据是正确的数据，反之，如果这两个CRC值不一样，就证明收到的数据是错误的，如此一来，便很好的解决了数据在传输过程中可能出现的各种错误而导致整个数据报文都错乱。
 
+##### 3、TLV协议问题
+- 数据重合
+
+  如果设置0x01为温度，那么后面有个0x01可能是表示数据的，而不是温度！这时候需要加一个报头，固定为0xFD，用来标志一个报文的开始。
+
+- 数据跳变
+
+  不能保证数据传输过程中数据的跳变，0x01表示温度，跳变为0x02就表示另外的东西，这时候需要在一个字节流末尾加一个CRC校验，传输前算一下字节流的大小，传输到另外一个端口后再算一下，对比前后两个CRC的值，如果相同，表示没有发生字节跳变，如果不同，那就舍弃！
+
+- 报头在TLV协议中
+
+  同样也要加CRC校验
+  
+  
+
+##### 4、代码示例
+
+###### 4.1、封包代码
+
+```c
+#include<stdio.h>
+#include<string.h>
+ 
+#define     HEAD                0xFD                    //定义一个报头
+#define     BUF_SIZE            128                     //定义一个buffer的大小
+#define     TLV_FIXED_SIZE      5                       //固定的TLV字节流大小，不包含value值
+#define     TLV_MINI_SIZE       (TLV_FIXED_SIZE+1)      //TLV字节流的最小值，value的值为1个字节
+#define     ON                  1
+#define     OFF                 0
+
+//使用枚举，Tag的值会自加
+enum                                                    
+{
+    TAG_LOGON=1,                                        //登陆Tag
+    TAG_CAMERA,                                         //摄像头Tag
+    TAG_LED,                                            //照明灯Tag
+};
+int     pack_logon(char *buf, int size, char *psw);     //声明登陆（logon）封装函数
+int     pack_camera(char *buf, int size, int cmd);      //声明摄像头（camera）封装函数
+int     pack_led(char *buf, int size, int cmd);         //声明照明灯（led）封装函数
+void    dump_buf(char*type,char *data,int len);         //声明dump_buf
+ 
+int main(int argc, char **argv)
+{
+        char        buf[BUF_SIZE];
+        int         bytes;                              //一个封装函数的字节流的个数
+ 
+        bytes = pack_logon(buf,sizeof(buf),"iot@yun");  //设置登陆（logon）函数
+        dump_buf("Logon",buf,bytes);                    
+    //设置dump_buf函数，把所有的字节流都放到dump_buf里面
+        bytes = pack_camera(buf,sizeof(buf),ON);        //设置摄像头（camera）函数
+        dump_buf("Camera",buf,bytes);                            
+ 
+        bytes = pack_led(buf, sizeof(buf), ON);         //设置照明灯（led）函数
+        dump_buf("LED",buf,bytes);
+ 
+        return 0;
+}
+ 
+//buf   缓冲区
+//size  缓冲区的大小
+//psw   密码
+int pack_logon(char *buf, int size, char *psw)          //定义登陆（logon）封装函数
+{
+    unsigned short      crc=0;                          //crc校验值
+    int                 pack_len=0;
+    int                 data_len=0;
+    int                 ofset=0;                        //buf的索引位置
+    if( !buf || !psw || size<TLV_MINI_SIZE )            //判断
+    {
+        printf("Invalid input argument!\n");            //无效输入内容
+        return 0;
+    }
+    buf[ofset]=HEAD;                                    //buf[0]设为报头（HEAD）
+    ofset += 1;                                         //索引加1
+    buf[ofset]=TAG_LOGON;                               //buf[1]设为类型（Tag）
+    ofset += 1;
+    if( strlen(psw)<size-TLV_FIXED_SIZE )               //psw是一个字节流，strlen（psw）计算它的长度，buf减去5等于value的值
+        data_len = strlen(psw);                         //如果密码的长度小于value的值，就用密码的值
+    else
+        data_len = size-TLV_FIXED_SIZE;                 //否则就用value的最大值
+    pack_len = data_len+TLV_FIXED_SIZE;                 //封装TLV的总长度
+    buf[ofset]=pack_len;                                //buf[2]设为长度（Length）
+    ofset += 1;
+    memcpy(&buf[ofset],psw,data_len);                   //从psw拷贝到buf[3,4,5...]
+    ofset += data_len;                                  //索引加data_len个字节  
+//    crc = crc_itu_t(MAGIC_CRC, buf, ofset);             //调用crc函数,此函数在头文件中
+//   ofset += 2;                                         //索引加2
+    return ofset;                                       //返回索引值
+}
+
+//buf   缓冲区
+//size  缓冲区的大小
+//cmd   开关 
+int pack_camera(char *buf, int size, int cmd)
+{
+    unsigned short      crc=0;
+    int                 pack_len = TLV_FIXED_SIZE+1;    //开关（cmd）的值只有一个字节
+    if( !buf || size<TLV_MINI_SIZE )
+    {
+        printf("Invalid input argument!\n");
+        return 0;
+    }
+    buf[0] = HEAD;
+    buf[1] = TAG_CAMERA;
+    buf[2] = pack_len;
+    buf[3] = ( ON==cmd ) ? 0x01:0x00;
+ //   crc = crc_itu_t(MAGIC_CRC,buf,4);
+ //   ushort_to_bytes(&buf[4],crc);
+    return pack_len;
+}
+
+int pack_led(char *buf, int size, int cmd)
+{
+    unsigned short      crc=0;
+    int                 pack_len = TLV_FIXED_SIZE+1;    //开关（cmd）的值只有一个字节 
+    if( !buf || size<TLV_MINI_SIZE )
+    {
+        printf("Invalid input argument!\n");
+        return 0;
+    }
+    buf[0] = HEAD;
+    buf[1] = TAG_LED;
+    buf[2] = pack_len;
+    buf[3] = ( ON==cmd ) ? 0x01:0x00;
+//    crc = crc_itu_t(MAGIC_CRC,buf,4);
+//   ushort_to_bytes(&buf[4],crc); 
+    return pack_len;
+}
+ 
+//定义dump_buf  
+//data  指针，指着buf的首地址
+//len   buf的长度 
+void dump_buf(char *type,char *data, int len)           
+{
+    if( type )
+    {
+        printf("%s:\n",type);
+    }
+    for(int i=0; i<len; i++)
+    {
+        printf("0x%.2X ",data[i]);
+    }
+    printf("\n");
+}
+```
 
 
-##### 3、代码示例
+
+###### 4.2、解析代码
+
+```c
+#include<stdio.h>
+#include<string.h>
+#include<unistd.h> 
+#include"crc-itu-t.c"
+#include<stdlib.h>
+ 
+#define TLV_MAX_SIZE    128
+#define TLV_MIN_SIZE    6
+#define HEAD            0xfd
+ 
+enum
+{
+    TAG_LOGON=1,
+    TAG_CAMERA,
+    TAG_LED,
+};
+ 
+int unpack(char *buf,int bytes);
+
+int main()
+{
+    int                 bytes;
+    char                array[]={0xfd,0x03,0x06,0x00,0xb2,0x0e};
+    
+    bytes = unpack(array,sizeof(array));
+ 
+    printf("The array has %d bytes!\n",sizeof(array));
+    
+    printf("array has %d bytes now!\n",bytes);
+ 
+    return 0;
+ 
+}
+ 
+int unpack(char *buf,int bytes)
+{
+    int                 i;
+    char                *ptr=NULL;
+    int                 len;
+    unsigned short      crc,val;
+ 
+    if( !buf )
+    {
+        printf("Invailed input!\n");
+        return 0;
+    }
+ 
+again:
+ 
+    if( bytes < TLV_MIN_SIZE )                                      //数据小于一帧
+    {
+        printf("TLV packet is too short!\n");
+        printf("Wait for continue input...\n");
+        return bytes;                                               //返回半帧的值
+    }
+ 
+    for( int i=0; i<bytes; i++)                                     //数据大于一帧，开始遍历
+    {
+        if( (unsigned char)buf[i] == HEAD )
+        {
+ 
+            if(bytes-i < 2)                                         //这一帧中没有（length）长度
+            {
+                printf("\nTLV packet is too short.it is incomplete\n");
+                printf("\nWait for continue input...\n");
+                memmove(buf,&buf[i],bytes-i);                       //把半帧移到buf的开端
+                return bytes-i;                                     //返回半帧的值
+            }
+ 
+            ptr = &buf[i];
+            len = ptr[2];
+ 
+            if(len < TLV_MIN_SIZE || len > TLV_MAX_SIZE)            //这一帧中（length）长度错误
+            {
+                memmove(buf,&ptr[2],bytes-i-2);                     //把这一帧扔掉
+                goto again;                                         //继续遍历
+            }
+ 
+            if(len > bytes-i)                                       //（length）比剩下的还要长
+            {
+                memmove(buf,ptr,bytes-i);                           //把半帧移到buf的开端
+                printf("TLV packet is incomplete!\n");
+                printf("Wait for continue input...\n");
+                return bytes-i;                                     //返回半帧的值
+            }
+ 
+            crc = crc_itu_t(MAGIC_CRC,(unsigned char *)ptr,(len-2));
+            val = bytes_to_ushort( (unsigned char *)&ptr[len-2],2 );
+ 
+            if(val != crc)                                          //两次的CRC不同
+            {
+                printf("CRC check error\n");
+                memmove(buf,&ptr[len],bytes-i-len);                 //把这一帧扔掉
+                bytes = bytes-i-len;
+                goto again;                                         //继续遍历
+            }
+ 
+            for(int i=0; i<len; i++)
+            {
+                switch(ptr[i+1])
+                {
+                    case TAG_LOGON:
+                                    printf("TAG_LOGON:\n");
+ 
+                    case TAG_CAMERA:
+                                    printf("TAG_CAMERA:\n");
+ 
+                    case TAG_LED:
+                                    printf("TAG_LED:\n");
+                }
+                
+                printf("0x%02x ",ptr[i]);
+            }
+            printf("\n");
+ 
+            memmove(buf,&ptr[len],bytes-i-len);                     //把这一帧扔掉
+ 
+            bytes = bytes-i-len;
+            goto again;                                             //继续遍历
+        }
+    } 
+}
+```
+
+###### 4.3、其他装包代码
 
 ```c
 /**
@@ -132,3 +406,8 @@ int packtlv(char *buf,int size,char *sn,struct tm *time_now,float *temper)
 
 **版权声明：本文转载于CSDN博主「心.跳」的原创文章，内容有修改**
 **原文链接：https://blog.csdn.net/weixin_43001046/article/details/89048728**
+
+**版权声明：本文为CSDN博主「Sheerandeng」的原创文章，内容有修改**
+**原文链接：https://blog.csdn.net/Shallwen_Deng/article/details/88930288**
+
+**文件链接：https://wenku.baidu.com/view/ed9976eac67da26925c52cc58bd63186bceb92e2.html**
