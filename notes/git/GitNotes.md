@@ -132,8 +132,6 @@ git branch -D <name>
 
 
 
-
-
 ```bash
 
 git add .
@@ -192,3 +190,12 @@ git config --list --show-origin
 ```bash
 git config --list --show-origin  
 ```
+
+
+
+回退commit
+
+```bash
+git reset --hard 
+```
+
