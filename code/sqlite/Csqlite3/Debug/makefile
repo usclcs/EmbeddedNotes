@@ -23,19 +23,19 @@ endif
 # Add inputs and outputs from these tool invocations to the build variables 
 
 # All Target
-all: Csqlite
+all: Csqlite3
 
 # Tool invocations
-Csqlite: $(OBJS) $(USER_OBJS)
+Csqlite3: $(OBJS) $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C Linker'
-	gcc  -o "Csqlite" $(OBJS) $(USER_OBJS) $(LIBS)
+	gcc  -o "Csqlite3" $(OBJS) $(USER_OBJS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) $(EXECUTABLES)$(OBJS)$(C_DEPS) Csqlite
+	-$(RM) $(EXECUTABLES)$(OBJS)$(C_DEPS) Csqlite3
 	-@echo ' '
 
 .PHONY: all clean dependents

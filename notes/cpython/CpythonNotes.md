@@ -113,9 +113,10 @@ Py_SetPythonHome();
 Py_SetProgramName();
 Py_SetPath();		-- 设置python环境变量
 
-Py_Initialize();	-- 初始化python
+Py_Initialize();	-- 初始化python解释器
 Py_Finalize();		-- 结束python
 Py_IsInitialized();	-- 判断初始化python结果
+Py_InitializeEx();	-- 与初始化python解释器函数类似
 ```
 
 
@@ -332,6 +333,7 @@ c代码示例：
 PyThreadState* initPython(void)
 {
 	/* 设置 Python 的 PATH */
+    /*若在初始化解释器之前使用，python解释器则安装设置路径搜索*/
 	Py_SetPath(L"/usr/lib/python35.zip:"
 				"/usr/lib/python3.5:"
 				"/usr/lib/python3.5/plat-x86_64-linux-gnu:"
@@ -419,6 +421,6 @@ if __name__ == '__main__':
 
 **资料：**
 
-/*https://docs.python.org/zh-cn/3.5/c-api/index.html*/
+https://docs.python.org/zh-cn/3.5/c-api/index.html
 
-/*https://blog.csdn.net/qq_33339479/article/details/81432575*/
+*https://blog.csdn.net/qq_33339479/article/details/81432575*
